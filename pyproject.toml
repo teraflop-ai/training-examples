@@ -1,0 +1,13 @@
+[project]
+name = "training-examples"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "daft>=0.7.24",
+    "datasets>=5.0.1",
+    "kernels==0.16.0",
+    "torch>=2.14.0",
+    "transformers>=5.17.0",
+]

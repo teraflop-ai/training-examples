@@ -9,6 +9,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DataLoader, DistributedSampler
 from tqdm.auto import tqdm
+from torchmetrics import MeanMetric, MeanSquaredError
 
 
 def parse_args():
@@ -69,20 +70,24 @@ def train_epoch(model, loader, opt, sched, rank, epoch, args):
 @torch.no_grad()
 def evaluate(model, loader):
     model.eval()
-    totals = torch.zeros(4, device="cuda")
+    mse = MeanSquaredError().cuda()
+    acc = MeanMetric().cuda()
+    acc3 = MeanMetric().cuda()
+
     for batch in tqdm(loader, desc="Eval", disable=dist.get_rank() != 0):
         batch = to_device(batch)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             out = model(**batch)
+
         labels = batch["labels"]
-        pred = out.logits.squeeze(-1).float().round().clamp(0, 5)
-        exact = (pred == labels).sum().item()
-        bin3 = ((pred >= 3) == (labels >= 3)).sum().item()
-        n = len(labels)
-        totals += torch.tensor([out.loss.item() * n, exact, bin3, n], device="cuda")
-    dist.all_reduce(totals)
-    loss_sum, exact_sum, bin3_sum, count = totals.tolist()
-    return loss_sum / count, exact_sum / count, bin3_sum / count
+        logits = out.logits.squeeze(-1).float()
+        pred = logits.round().clamp(0, 5)
+
+        mse.update(logits, labels)
+        acc.update((pred == labels).float())
+        acc3.update(((pred >= 3) == (labels >= 3)).float())
+
+    return tuple(metric.compute().item() for metric in (mse, acc, acc3))
 
 
 def main():
